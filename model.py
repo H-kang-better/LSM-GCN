@@ -93,9 +93,9 @@ class GCN(nn.Module):
         return h
 
 
-class BMGCN(nn.Module):
+class LSM_GCN(nn.Module):
     def __init__(self, mlp_module, gcn_module, loss_weight, feat_balance, device):
-        super(BMGCN, self).__init__()
+        super(LSM_GCN, self).__init__()
 
         self.loss_weight = loss_weight
         self.device = device

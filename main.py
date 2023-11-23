@@ -4,7 +4,7 @@ import numpy as np
 import torch.nn.functional as F
 
 from args import parameter_parser
-from model import MLP, GCN, BMGCN
+from model import MLP, GCN, LSM_GCN
 from utils import load_data, setup_seed, accuracy
 
 args = parameter_parser()
@@ -56,10 +56,10 @@ for repeat in range(10):
             best_epoch = epoch
             torch.save(model_mlp.state_dict(), 'checkpoint/{}_best_mlp'.format(args.dataset))
 
-        # sys.stdout.flush()
-        # sys.stdout.write('\r')
-        # sys.stdout.write("Epoch #{:4d}\tTrain Loss: {:.6f} | Train Acc: {:.4f}".format(epoch, train_loss.item(), train_acc))
-        # sys.stdout.write(" | Val Loss: {:.6f} | Val Acc: {:.4f} | Test Acc: {:.4f}".format(val_loss.item(), val_acc, test_acc))
+        sys.stdout.flush()
+        sys.stdout.write('\r')
+        sys.stdout.write("Epoch #{:4d}\tTrain Loss: {:.6f} | Train Acc: {:.4f}".format(epoch, train_loss.item(), train_acc))
+        sys.stdout.write(" | Val Loss: {:.6f} | Val Acc: {:.4f} | Test Acc: {:.4f}".format(val_loss.item(), val_acc, test_acc))
 
     print('\nPre-train MLP best_epoch: {}, best_val_acc: {:.4f}'.format(best_epoch, best_acc))
     model_mlp.load_state_dict(torch.load('checkpoint/{}_best_mlp'.format(args.dataset)))
@@ -68,17 +68,17 @@ for repeat in range(10):
     model_gcn = GCN(in_size=features.shape[1], hidden_size=args.hidden_dim, out_size=labels_oneHot.shape[1],
                     num_layers=args.num_gcn_layers, dropout=args.dropout_gcn)
     model_gcn.to(args.device)
-    model_cpgnn = BMGCN(model_mlp, model_gcn, args.loss_weight, args.feat_balance, args.device)
-    model_cpgnn.to(args.device)
+    model_lsmgcn = LSM_GCN(model_mlp, model_gcn, args.loss_weight, args.feat_balance, args.device)
+    model_lsmgcn.to(args.device)
 
-    all_params = model_cpgnn.parameters()
+    all_params = model_lsmgcn.parameters()
     no_decay = []
-    for pname, p in model_cpgnn.named_parameters():
+    for pname, p in model_lsmgcn.named_parameters():
         if pname == 'H' or pname[-4:] == 'bias':
             no_decay += [p]
     params_id = list(map(id, no_decay))
     other_params = list(filter(lambda p: id(p) not in params_id, all_params))
-    optimizer_cpgnn = torch.optim.Adam([
+    optimizer_lsmgcn = torch.optim.Adam([
         {'params': no_decay},
         {'params': other_params, 'weight_decay': args.weight_decay}],
         lr=args.lr)
@@ -87,22 +87,22 @@ for repeat in range(10):
     patience = 0
     running_epoch = args.epoch_gcn
     for epoch in range(args.epoch_gcn):
-        model_cpgnn.train()
-        optimizer_cpgnn.zero_grad()
-        logits, train_loss, _, _, _ = model_cpgnn(features, adj, train_idx, labels[train_idx], labels_oneHot, train_idx)
+        model_lsmgcn.train()
+        optimizer_lsmgcn.zero_grad()
+        logits, train_loss, _, _, _ = model_lsmgcn(features, adj, train_idx, labels[train_idx], labels_oneHot, train_idx)
         train_acc = accuracy(logits[train_idx], labels[train_idx])
         train_loss.backward()
-        optimizer_cpgnn.step()
+        optimizer_lsmgcn.step()
 
-        model_cpgnn.eval()
-        logits, val_loss, _, _, _ = model_cpgnn(features, adj, val_idx, labels[val_idx], labels_oneHot, train_idx)
+        model_lsmgcn.eval()
+        logits, val_loss, _, _, _ = model_lsmgcn(features, adj, val_idx, labels[val_idx], labels_oneHot, train_idx)
         val_acc = accuracy(logits[val_idx], labels[val_idx])
         test_acc = accuracy(logits[test_idx], labels[test_idx])
 
         if val_acc >= best_acc:
             best_acc = val_acc
             best_epoch = epoch
-            torch.save(model_cpgnn.state_dict(), 'checkpoint/{}_best_BMGCN'.format(args.dataset))
+            torch.save(model_lsmgcn.state_dict(), 'checkpoint/{}_best_LSM_GCN'.format(args.dataset))
             patience = 0
         else:
             patience += 1
@@ -111,16 +111,16 @@ for repeat in range(10):
             running_epoch = epoch
             break
 
-        # sys.stdout.flush()
-        # sys.stdout.write('\r')
-        # sys.stdout.write("Epoch #{:4d}\tTrain Loss: {:.6f} | Train Acc: {:.4f}".format(epoch, train_loss.item(), train_acc))
-        # sys.stdout.write(" | Val Loss: {:.6f} | Val Acc: {:.4f} | Test Acc: {:.4f}".format(val_loss.item(), val_acc, test_acc))
+        sys.stdout.flush()
+        sys.stdout.write('\r')
+        sys.stdout.write("Epoch #{:4d}\tTrain Loss: {:.6f} | Train Acc: {:.4f}".format(epoch, train_loss.item(), train_acc))
+        sys.stdout.write(" | Val Loss: {:.6f} | Val Acc: {:.4f} | Test Acc: {:.4f}".format(val_loss.item(), val_acc, test_acc))
 
-    model_cpgnn.load_state_dict(torch.load('checkpoint/{}_best_BMGCN'.format(args.dataset)))
-    model_cpgnn.eval()
-    logits, _, H, Q, emb = model_cpgnn(features, adj, test_idx, labels[test_idx], labels_oneHot, train_idx)
+    model_lsmgcn.load_state_dict(torch.load('checkpoint/{}_best_LSM_GCN'.format(args.dataset)))
+    model_lsmgcn.eval()
+    logits, _, H, Q, emb = model_lsmgcn(features, adj, test_idx, labels[test_idx], labels_oneHot, train_idx)
     test_acc = accuracy(logits[test_idx], labels[test_idx])
-    print('\nBM-GCN best_val_epoch: {}, test_acc: {:.4f}'.format(best_epoch, test_acc))
+    print('\nLSM-GCN best_val_epoch: {}, test_acc: {:.4f}'.format(best_epoch, test_acc))
 
     print('******************** Repeat {} Done ********************\n'.format(repeat))
     acc.append(round(test_acc.item(), 4))
